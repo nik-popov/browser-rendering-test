@@ -3,9 +3,10 @@ export default {
     try {
       // Parse query parameters
       const { searchParams } = new URL(request.url);
-      const query = searchParams.get("q"); // Search query (e.g., ?q=cloudflare)
+      const query = searchParams.get("q"); // Search query (e.g., ?q=TH03279J078)
       const searchType = searchParams.get("searchType"); // Optional: image or undefined (web)
       const targetUrl = searchParams.get("url"); // Fallback for other URLs
+      const entryId = parseInt(searchParams.get("entryId") || "1"); // EntryID for DataFrame-like output
 
       // Validate input
       if (!query && !targetUrl) {
@@ -19,7 +20,7 @@ export default {
       console.log(`Processing: ${query ? `search query ${query} (${searchType || "web"})` : `URL ${targetUrl}`}`);
 
       // Check KV cache
-      const cacheKey = query ? `search:${query}:${searchType || "web"}` : `cache:${targetUrl}`;
+      const cacheKey = query ? `search:${query}:${searchType || "web"}:${entryId}` : `cache:${targetUrl}`;
       const cachedResponse = await env.BROWSER_KV_DEMO.get(cacheKey);
       if (cachedResponse) {
         console.log(`Serving from cache: ${cacheKey}`);
@@ -35,13 +36,7 @@ export default {
       let content, contentType;
       if (query) {
         // Use Google Custom Search JSON API
-        const searchEngineId = "a74575c01db4c4acc"; // Replace with your Search Engine ID
-        if (!searchEngineId || searchEngineId === "YOUR_SEARCH_ENGINE_ID") {
-          return new Response("Search Engine ID not configured in Worker code", {
-            status: 500,
-            headers: { "Content-Type": "text/plain" },
-          });
-        }
+        const searchEngineId = "a74575c01db4c4acc"; // From your JSON response
         if (!env.GOOGLE_API_KEY) {
           return new Response("Google API key not configured", {
             status: 500,
@@ -71,7 +66,23 @@ export default {
           });
         }
 
-        content = await response.text();
+        // Parse JSON response
+        const json = await response.json();
+        const items = json.items || [];
+
+        // Process results similar to Python code
+        const results = items.map((item, index) => ({
+          EntryID: entryId,
+          ImageUrl: item.link || "No image URL",
+          ImageDesc: item.snippet || item.htmlSnippet || "No description",
+          ImageSource: item.image?.contextLink || "No source",
+          ImageUrlThumbnail: item.image?.thumbnailLink || "No thumbnail URL",
+        }));
+
+        // Limit to 5 results (mimicking Python's min_length[:5])
+        const limitedResults = results.slice(0, 5);
+
+        content = JSON.stringify(limitedResults, null, 2);
         contentType = "application/json; charset=utf-8";
       } else {
         // Fallback to URL fetching
