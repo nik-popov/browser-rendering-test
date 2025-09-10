@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Minimal IDE with Browser Rendering</title>
+  <script src="https://unpkg.com/comlink/dist/umd/comlink.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+      background-color: #f0f0f0;
+    }
+    #editor {
+      width: 100%;
+      height: 200px;
+      font-family: monospace;
+      font-size: 14px;
+      padding: 10px;
+      border: 1px solid #ccc;
+    }
+    #output {
+      margin-top: 20px;
+      padding: 10px;
+      border: 1px solid #ccc;
+      background-color: #fff;
+      min-height: 100px;
+    }
+    button {
+      padding: 10px 20px;
+      margin: 10px 0;
+      background-color: #007bff;
+      color: #fff;
+      border: none;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #0056b3;
+    }
+  </style>
+</head>
+<body>
+  <h1>Minimal IDE with Browser Rendering</h1>
+  <textarea id="editor" placeholder="Enter URL to render (e.g., https://example.com)"></textarea>
+  <br>
+  <button onclick="renderPage()">Render Page</button>
+  <div id="output">Output will appear here...</div>
+
+  <script>
+    // Initialize Web Worker
+    const worker = new Worker('worker.js');
+    const browserService = Comlink.wrap(worker);
+
+    async function renderPage() {
+      const url = document.getElementById('editor').value.trim();
+      if (!url) {
+        document.getElementById('output').innerText = 'Please enter a valid URL';
+        return;
+      }
+      document.getElementById('output').innerText = 'Rendering...';
+      try {
+        const result = await browserService.render(url);
+        document.getElementById('output').innerText = result;
+      } catch (error) {
+        document.getElementById('output').innerText = `Error: ${error.message}`;
+      }
+    }
+  </script>
+</body>
+</html>
