@@ -36,7 +36,7 @@ export default {
       let content, contentType;
       if (query) {
         // Use Google Custom Search JSON API
-        const searchEngineId = "a74575c01db4c4acc"; // From your JSON response
+        const searchEngineId = "400138774a1b94845"; // From your JSON response
         if (!env.GOOGLE_API_KEY) {
           return new Response("Google API key not configured", {
             status: 500,
