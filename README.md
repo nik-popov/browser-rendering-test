@@ -1,1 +1,0 @@
-# browser-rendering-test
