@@ -83,8 +83,8 @@ export default {
               fetchSearch("image")
             ]);
             
-            const webResults = processItems(webJson.items || [], 'web').slice(0, 5);
-            const imageResults = processItems(imageJson.items || [], 'image').slice(0, 5);
+            const webResults = processItems(webJson.items || [], 'web');
+            const imageResults = processItems(imageJson.items || [], 'image');
             combinedResults = [...imageResults, ...webResults];
 
           } else {
@@ -92,7 +92,7 @@ export default {
              const type = searchType === "image" ? "image" : "web";
              console.log(`Fetching API: ${type}`);
              const json = await fetchSearch(type);
-             combinedResults = processItems(json.items || [], type).slice(0, 5);
+             combinedResults = processItems(json.items || [], type);
           }
 
           content = JSON.stringify(combinedResults, null, 2);
