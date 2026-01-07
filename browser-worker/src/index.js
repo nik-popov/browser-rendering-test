@@ -17,10 +17,10 @@ export default {
       }
 
       // Log for debugging
-      console.log(`Processing: ${query ? `search query ${query} (${searchType || "web"})` : `URL ${targetUrl}`}`);
+      console.log(`Processing: ${query ? `search query ${query} (combined)` : `URL ${targetUrl}`}`);
 
       // Check KV cache
-      const cacheKey = query ? `search:${query}:${searchType || "web"}:${entryId}` : `cache:${targetUrl}`;
+      const cacheKey = query ? `search:${query}:combined:${entryId}` : `cache:${targetUrl}`;
       const cachedResponse = await env.BROWSER_KV_DEMO.get(cacheKey);
       if (cachedResponse) {
         console.log(`Serving from cache: ${cacheKey}`);
@@ -45,45 +45,56 @@ export default {
           });
         }
 
-        let apiUrl = `https://www.googleapis.com/customsearch/v1?key=${env.GOOGLE_API_KEY}&cx=${searchEngineId}&q=${encodeURIComponent(query)}`;
-        if (searchType === "image") {
-          apiUrl += "&searchType=image";
-        }
+        const webApiUrl = `https://www.googleapis.com/customsearch/v1?key=${env.GOOGLE_API_KEY}&cx=${searchEngineId}&q=${encodeURIComponent(query)}`;
+        const imageApiUrl = `https://www.googleapis.com/customsearch/v1?key=${env.GOOGLE_API_KEY}&cx=${searchEngineId}&q=${encodeURIComponent(query)}&searchType=image`;
 
-        console.log(`Fetching API: ${apiUrl}`);
-        const response = await fetch(apiUrl, {
-          signal: AbortSignal.timeout(5000),
-          headers: {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36",
-          },
-        });
+        console.log(`Fetching APIs: Web and Image`);
+        const [webResponse, imageResponse] = await Promise.all([
+          fetch(webApiUrl, {
+            signal: AbortSignal.timeout(5000),
+            headers: {
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36",
+            },
+          }),
+          fetch(imageApiUrl, {
+            signal: AbortSignal.timeout(5000),
+            headers: {
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36",
+            },
+          })
+        ]);
 
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.log(`API failed: ${response.status} ${response.statusText} - ${errorText}`);
-          return new Response(`Failed to fetch search results: ${response.statusText} - ${errorText}`, {
-            status: response.status,
+        if (!webResponse.ok || !imageResponse.ok) {
+          const errorText = !webResponse.ok ? await webResponse.text() : await imageResponse.text();
+          const status = !webResponse.ok ? webResponse.status : imageResponse.status;
+          console.log(`API failed: ${status} - ${errorText}`);
+          return new Response(`Failed to fetch search results: ${status} - ${errorText}`, {
+            status: status,
             headers: { "Content-Type": "text/plain" },
           });
         }
 
-        // Parse JSON response
-        const json = await response.json();
-        const items = json.items || [];
+        // Parse JSON responses
+        const [webJson, imageJson] = await Promise.all([webResponse.json(), imageResponse.json()]);
+        const webItems = webJson.items || [];
+        const imageItems = imageJson.items || [];
 
         // Process results similar to Python code
-        const results = items.map((item, index) => ({
+        const processItems = (items, type) => items.map((item) => ({
           EntryID: entryId,
           ImageUrl: item.link || "No image URL",
           ImageDesc: item.snippet || item.htmlSnippet || "No description",
-          ImageSource: item.image?.contextLink || "No source",
-          ImageUrlThumbnail: item.image?.thumbnailLink || "No thumbnail URL",
+          ImageSource: item.image?.contextLink || item.displayLink || "No source",
+          ImageUrlThumbnail: item.image?.thumbnailLink || item.pagemap?.cse_image?.[0]?.src || "No thumbnail URL",
+          Type: type // Added type to distinguish
         }));
 
-        // Limit to 5 results (mimicking Python's min_length[:5])
-        const limitedResults = results.slice(0, 5);
+        const webResults = processItems(webItems, 'web').slice(0, 5);
+        const imageResults = processItems(imageItems, 'image').slice(0, 5);
+        
+        const combinedResults = [...imageResults, ...webResults];
 
-        content = JSON.stringify(limitedResults, null, 2);
+        content = JSON.stringify(combinedResults, null, 2);
         contentType = "application/json; charset=utf-8";
       } else {
         // Fallback to URL fetching
