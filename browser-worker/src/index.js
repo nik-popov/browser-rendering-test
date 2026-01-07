@@ -17,10 +17,10 @@ export default {
       }
 
       // Log for debugging
-      console.log(`Processing: ${query ? `search query ${query} (combined)` : `URL ${targetUrl}`}`);
+      console.log(`Processing: ${query ? `search query ${query} (${searchType || "web"})` : `URL ${targetUrl}`}`);
 
       // Check KV cache
-      const cacheKey = query ? `search:${query}:combined:${entryId}` : `cache:${targetUrl}`;
+      const cacheKey = query ? `search:${query}:${searchType || "web"}:${entryId}` : `cache:${targetUrl}`;
       const cachedResponse = await env.BROWSER_KV_DEMO.get(cacheKey);
       if (cachedResponse) {
         console.log(`Serving from cache: ${cacheKey}`);
@@ -38,46 +38,30 @@ export default {
         // Use Google Custom Search JSON API
         const searchEngineId = "400138774a1b94845"; // From your JSON response
         if (!env.GOOGLE_API_KEY) {
-          
           return new Response("Google API key not configured", {
             status: 500,
             headers: { "Content-Type": "text/plain" },
           });
         }
 
-        const webApiUrl = `https://www.googleapis.com/customsearch/v1?key=${env.GOOGLE_API_KEY}&cx=${searchEngineId}&q=${encodeURIComponent(query)}`;
-        const imageApiUrl = `https://www.googleapis.com/customsearch/v1?key=${env.GOOGLE_API_KEY}&cx=${searchEngineId}&q=${encodeURIComponent(query)}&searchType=image`;
-
-        console.log(`Fetching APIs: Web and Image`);
-        const [webResponse, imageResponse] = await Promise.all([
-          fetch(webApiUrl, {
+        const fetchSearch = async (type) => {
+          let apiUrl = `https://www.googleapis.com/customsearch/v1?key=${env.GOOGLE_API_KEY}&cx=${searchEngineId}&q=${encodeURIComponent(query)}`;
+          if (type === "image") {
+            apiUrl += "&searchType=image";
+          }
+          
+          const response = await fetch(apiUrl, {
             signal: AbortSignal.timeout(5000),
             headers: {
               "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36",
             },
-          }),
-          fetch(imageApiUrl, {
-            signal: AbortSignal.timeout(5000),
-            headers: {
-              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36",
-            },
-          })
-        ]);
-
-        if (!webResponse.ok || !imageResponse.ok) {
-          const errorText = !webResponse.ok ? await webResponse.text() : await imageResponse.text();
-          const status = !webResponse.ok ? webResponse.status : imageResponse.status;
-          console.log(`API failed: ${status} - ${errorText}`);
-          return new Response(`Failed to fetch search results: ${status} - ${errorText}`, {
-            status: status,
-            headers: { "Content-Type": "text/plain" },
           });
-        }
 
-        // Parse JSON responses
-        const [webJson, imageJson] = await Promise.all([webResponse.json(), imageResponse.json()]);
-        const webItems = webJson.items || [];
-        const imageItems = imageJson.items || [];
+          if (!response.ok) {
+            throw new Error(`${response.status} ${response.statusText}`);
+          }
+          return response.json();
+        };
 
         // Process results similar to Python code
         const processItems = (items, type) => items.map((item) => ({
@@ -86,16 +70,41 @@ export default {
           ImageDesc: item.snippet || item.htmlSnippet || "No description",
           ImageSource: item.image?.contextLink || item.displayLink || "No source",
           ImageUrlThumbnail: item.image?.thumbnailLink || item.pagemap?.cse_image?.[0]?.src || "No thumbnail URL",
-          Type: type // Added type to distinguish
+          Type: type
         }));
 
-        const webResults = processItems(webItems, 'web').slice(0, 5);
-        const imageResults = processItems(imageItems, 'image').slice(0, 5);
-        
-        const combinedResults = [...imageResults, ...webResults];
+        let combinedResults = [];
 
-        content = JSON.stringify(combinedResults, null, 2);
-        contentType = "application/json; charset=utf-8";
+        try {
+          if (searchType === "combined") {
+            console.log(`Fetching APIs: Web and Image (combined)`);
+            const [webJson, imageJson] = await Promise.all([
+              fetchSearch("web"),
+              fetchSearch("image")
+            ]);
+            
+            const webResults = processItems(webJson.items || [], 'web').slice(0, 5);
+            const imageResults = processItems(imageJson.items || [], 'image').slice(0, 5);
+            combinedResults = [...imageResults, ...webResults];
+
+          } else {
+             // Legacy behavior: 'image' or 'web' (default)
+             const type = searchType === "image" ? "image" : "web";
+             console.log(`Fetching API: ${type}`);
+             const json = await fetchSearch(type);
+             combinedResults = processItems(json.items || [], type).slice(0, 5);
+          }
+
+          content = JSON.stringify(combinedResults, null, 2);
+          contentType = "application/json; charset=utf-8";
+
+        } catch (error) {
+           console.log(`API failed: ${error.message}`);
+           return new Response(`Failed to fetch search results: ${error.message}`, {
+             status: 500, // Roughly standardizing error code for simplicity
+             headers: { "Content-Type": "text/plain" },
+           });
+        }
       } else {
         // Fallback to URL fetching
         let validUrl;
